@@ -87,12 +87,13 @@ revise freely:
   no config: it builds from the message bus and sources resources *and* rules from the rule table,
   and direct resource registration throws by design. The documented `roles` / `resources` /
   `allow` / `deny` array therefore has readers for `resources` only (a display path). Consequence:
-  the gateway policy that `webware-usermanager` declares in `getAclConfig()` is inert. Tracked
-  against `webware-acl`.
+  the gateway policy that `webware-usermanager` declares in `getAclConfig()` is inert.
+  Tracked in [webware-acl#59](https://github.com/webinertia/webware-acl/issues/59).
 - **`webinertia/.github` → `.github/rulesets/org-required-ci.json` no longer describes the deployed
   ruleset.** The file scopes coverage with a `webware-*` name pattern, but the live ruleset also
   covers repositories that pattern cannot match. Re-applying the file as written would silently
-  drop required CI from them. Tracked against `webinertia/.github`.
+  drop required CI from them.
+  Tracked in [webinertia/.github#20](https://github.com/webinertia/.github/issues/20).
 
 ## Constraints
 
