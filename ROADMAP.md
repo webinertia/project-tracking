@@ -27,11 +27,14 @@ What follows from it, and what governs the tracks below:
 - **Composition belongs to the skeleton.** Nothing binds `acl`, `usermanager` and `admin` to each
   other, so no component gains a `require` or peer-dependency edge on another as the way that
   binding is expressed.
-- **There are exactly two integration surfaces.** The installer decides *what is installed and in
-  what order*; the console init commands *provision* each package. A new runtime path that bound one
-  component to another would be a third surface, and is therefore out of bounds.
-- **Config-provider aggregation is not an integration surface.** It is the framework's normal
-  self-registration mechanism and is unaffected by this doctrine.
+- **The installer and the init commands are the composition surfaces**: the installer decides what
+  is installed and in what order; the init commands provision each package.
+- **Config aggregation is the framework's binding mechanism, and it *is* an integration surface**
+  (owner correction, 2026-09-22). Every component contributes default *and* runtime config through
+  its `ConfigProvider`, and config-file aggregation merges all of it into the service manager's
+  `config` service — routes, middleware, DI and the ACL declarations all compose that way. An
+  earlier revision of this document claimed the opposite; that claim was invented to reconcile the
+  doctrine against the plan, and it was wrong.
 
 **Measured against the code today (2026-09-22), so the gap is explicit rather than assumed:**
 
@@ -55,6 +58,40 @@ Both packages also ship a duplicated `Admin/Dashboard/` trio — `Widget`, `Regi
 and `Container/RegisterWidgetListenerFactory` — so the admin surface is repeated glue as well as an
 edge.
 
+### Before this leg — retire `Webware\Core\Configuration`
+
+The `Configuration` / `ConfigurationInterface` static getters are already being phased out
+(decided 2026-09-19: the interface **constants stay**, the getter methods and `Configuration`
+classes go, replaced by mago `@type` shape aliases; order `webware-event` (pilot, applied) → `core` →
+`acl` → `admin` → `usermanager`). That phase-out leaves a hole this leg depends on, because the
+static getters are currently how a component's route segment and name prefix reach its route
+provider.
+
+**Owner direction (2026-09-22): find a better path than `Webware\Core\Configuration` before
+starting, and prototype it.** The candidate under consideration is an **enum-backed provider for the
+default required routes**, which double as ACL resources, expressed with `%s`-encoded strings so
+segments can be substituted at runtime. Whether that is functional and flexible enough to meet the
+requirements is **unresolved and needs a prototype** — do not treat it as decided.
+
+**Measured requirements.** Two prefixes compose every route name, and the same string must be both
+the registered route name and the ACL resource:
+
+| kind | composition | example |
+|---|---|---|
+| public route | `route_name_prefix` | `user.manager.session.read` |
+| admin route | `admin_base_name_prefix` + `module_admin_name_prefix` | `webware.admin.user.manager.create` |
+| segment | `admin_base_segment` + `/` + `module_admin_segment` | `webware.admin/user.manager` |
+
+Each component's `ConfigProvider` writes `route_segment` / `route_name_prefix` (defaults from
+`ConfigurationInterface::*_VALUE`) into its **own** config section — `Webware\Core\UserInterface`,
+`Webware\Admin\AdminInterface`, … — with the admin base coming from `webware-admin`'s section and the
+module half from the component's own.
+
+The mechanism has to yield, **from one source**: the registered route name, the ACL resource id, and
+the parent resource id. That last one is not cosmetic — `RouteResource::getResourceId()` returns the
+matched route name, so a route name and its resource id must be byte-identical or the check fails
+closed.
+
 ### Phase 2 breakdown — the install contract leg
 
 What actually blocks *starting* the skeleton is that **the stack has no install contract**: a
@@ -69,6 +106,7 @@ doctrine above, none of it is expressed by one component requiring another.
 
 | # | Work | Repo | Done when |
 |---|---|---|---|
+| A0 | **Prerequisite** — retire the `Webware\Core\Configuration` route getters via the enum-backed route/resource provider; prototype before committing to it (see *Before this leg*) | `webware-core`, `webware-acl`, `webware-admin`, `webware-usermanager` | One source yields the route name, ACL resource id and parent id, and no component reads a segment through a static getter |
 | A1 | Reconcile the ACL config contract with the decision engine (see *Decisions* below) | `webware-acl` | One source of truth; the declared policy reaches the tables the engine reads |
 | A2 | Seed the framework's own gateway policy | `webware-usermanager`, `webware-acl` | A fresh install yields Guest→allow / Member→deny on the `user.manager.*` gateways, with zero IMS store roles |
 | A3 | Composer-plugin installer: discovers per-package provisioners, orders them from the dependency graph | new | No component needs a peer dependency to be installed in the right order |
@@ -139,11 +177,12 @@ revise freely:
    every package and materialises it into `acl_role` / `acl_rule`. Rationale: it is the smallest
    reversal, it keeps the documented integration contract meaningful, and it gives the installer a
    natural per-package provisioning unit without any component depending on another.
-   *Re-read against the doctrine:* it is now also the only consistent reading, because the policy
-   would be materialised by an init command — a named integration surface — whereas option (A),
-   restoring config consumption inside `AclFactory`, would add a third surface. Option (A) in
-   [webware-acl#59](https://github.com/webinertia/webware-acl/issues/59) conflicts with the doctrine
-   for that reason.
+   **Retraction (2026-09-22).** An earlier revision argued this was also the only reading consistent
+   with the doctrine, because option (A) would add a third integration surface. That rested on the
+   incorrect claim that config aggregation is not an integration surface. It is, so the doctrine does
+   not exclude option (A), and the choice in
+   [webware-acl#59](https://github.com/webinertia/webware-acl/issues/59) is open on its own merits.
+   The route/resource finding below now argues *for* runtime derivation, which is option (A)'s shape.
 2. **The installer is a new framework-layer package** (a composer plugin), not a feature of an
    individual component.
 3. **The skeleton is scaffolded from the current tooling artifacts plus the application layout**
@@ -162,6 +201,15 @@ revise freely:
   covers repositories that pattern cannot match. Re-applying the file as written would silently
   drop required CI from them.
   Tracked in [webinertia/.github#20](https://github.com/webinertia/.github/issues/20).
+- **`webware-acl`'s `ruleSeeds()` composes resource ids from the module prefix only, so all 11 seeded
+  rows are inert.** It uses `Configuration::ADMIN_ROUTE_NAME_PREFIX_VALUE` (`acl.manager.`) where the
+  registered route name is `webware.admin.acl.manager.role.read`. `Acl::load()` then registers that
+  route resource with **no parent** — the walk up the dot path never finds a seeded ancestor, because
+  the seeded resources are one level short — so no seeded rule can ever reach it. Masked in practice
+  because `load()` also adds an allow-all for `Developer`, the only role the seed covers. Proof it is
+  an extraction error rather than a naming choice: the reference IMS seed carries the same 11 rows
+  with the same 10 suffixes under the full composed name and parent.
+  Tracked in [webware-acl#60](https://github.com/webinertia/webware-acl/issues/60).
 
 ## Constraints
 
