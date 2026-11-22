@@ -26,4 +26,28 @@ Per-component checkpoint issues attach to it as sub-issues, and GitHub derives p
 
 ## Scope
 
-This repo holds issues only - no code, no Composer package, nothing to publish. Component code lives in its own repo; org-wide templates and config live in [`webinertia/.github`](https://github.com/webinertia/.github). This repo is private, which is why tracking does not live there.
+This repo holds issues and archived planning material - no code, no Composer package, nothing to
+publish. Component code lives in its own repo; org-wide templates and config live in
+[`webinertia/.github`](https://github.com/webinertia/.github). This repo is private, which is why
+tracking does not live there.
+
+## Archived planning material
+
+Planning documents were moved out of the component repositories and preserved here, one directory
+per component:
+
+| Directory | Source in the component repo |
+|---|---|
+| `<component>/plan/` | `plan/` |
+| `<component>/docs/planning/` | `docs/planning/` |
+| `<component>/docs/*plan*.md` | loose planning files under `docs/` |
+
+Two rules govern these directories:
+
+- **They survive as written.** Each file was copied byte for byte from the component repo, and the
+  relative path is preserved so the original location is unambiguous. Do not rewrite, reformat, or
+  split them into issues. Their value is as a historical record.
+- **They are frozen, not maintained.** Current status lives in the tracker issue and in the
+  component repos. A planning file here reflects the moment it was archived and is not updated
+  afterwards. New planning work belongs in the tracker or in the component repo, never here.
+
